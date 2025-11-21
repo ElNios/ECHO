@@ -1,0 +1,1572 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>迴響檔案館 | The Echo Archive v2.5</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入復古字體 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        :root {
+            --color-bg: #050505;
+            --color-screen-bg: #0a0f0a;
+            --color-primary: #ffb000; /* 琥珀色 */
+            --color-secondary: #ff3333; /* 警示紅 */
+            --color-accent: #00ffcc; /* 螢光青 */
+            --color-dim: #553300;
+            --scanline-opacity: 0.1;
+        }
+
+        /* === 全局設定 === */
+        body {
+            background-color: var(--color-bg);
+            color: var(--color-primary);
+            font-family: 'VT323', 'Noto Sans TC', monospace;
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: crosshair;
+            user-select: none;
+        }
+        
+        button, .interactive, .seq-cell, .inventory-item {
+            cursor: cell;
+        }
+
+        /* === 螢幕容器 === */
+        .monitor-casing {
+            background: #1a1a1a;
+            padding: 20px;
+            border-radius: 16px;
+            box-shadow: 
+                inset 0 0 20px #000,
+                0 0 0 8px #2a2a2a,
+                0 20px 60px rgba(0,0,0,0.9);
+            position: relative;
+            width: 95vw;
+            height: 92vh;
+            max-width: 1400px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .screen {
+            background-color: var(--color-screen-bg);
+            flex: 1;
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+            padding: 1.5rem;
+            box-shadow: inset 0 0 60px rgba(0,0,0,0.7);
+            border: 2px solid #333;
+            z-index: 1;
+        }
+
+        /* === 視覺特效層 (嚴格禁止阻擋點擊) === */
+        .scanlines, .crt-overlay, .glitch-overlay, .visual-layer {
+            position: absolute;
+            inset: 0;
+            pointer-events: none !important; /* 關鍵修復：避免特效阻擋點擊 */
+            z-index: 50;
+        }
+
+        .scanlines {
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2));
+            background-size: 100% 4px;
+            animation: scrollScanlines 15s linear infinite;
+        }
+        
+        .crt-overlay {
+            background: radial-gradient(circle, rgba(0,0,0,0) 50%, rgba(0,0,0,0.5) 90%);
+        }
+
+        /* 故障特效 - 僅應用於視覺，不移動按鈕 */
+        @keyframes glitch-anim {
+            0% { clip-path: inset(40% 0 61% 0); transform: translate(-2px, 2px); }
+            20% { clip-path: inset(92% 0 1% 0); transform: translate(1px, -1px); }
+            40% { clip-path: inset(43% 0 1% 0); transform: translate(-1px, 2px); }
+            60% { clip-path: inset(25% 0 58% 0); transform: translate(2px, 1px); }
+            80% { clip-path: inset(54% 0 7% 0); transform: translate(-1px, -2px); }
+            100% { clip-path: inset(58% 0 43% 0); transform: translate(1px, 1px); }
+        }
+        
+        .glitch-active .scanlines {
+            animation: glitch-anim 0.2s infinite linear alternate-reverse;
+            opacity: 0.5;
+            background: rgba(255, 0, 0, 0.1);
+        }
+
+        .screen-shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        @keyframes scrollScanlines { 0% { background-position: 0 0; } 100% { background-position: 0 100%; } }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+
+        /* === UI 元件 === */
+        .retro-btn {
+            border: 1px solid var(--color-primary);
+            background: rgba(255, 176, 0, 0.05);
+            color: var(--color-primary);
+            padding: 0.5rem 1rem;
+            font-family: 'VT323', monospace;
+            font-size: 1.1rem;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            text-align: left;
+            position: relative;
+            overflow: hidden;
+        }
+        .retro-btn:hover, .retro-btn.active {
+            background: var(--color-primary);
+            color: black;
+            box-shadow: 0 0 15px var(--color-primary);
+        }
+        
+        /* 視覺小說布局 */
+        .vn-layout {
+            display: grid;
+            grid-template-rows: 3fr 2fr;
+            height: 100%;
+            gap: 1rem;
+        }
+        .vn-visual-frame {
+            border: 1px dashed var(--color-primary);
+            background: rgba(0,0,0,0.3);
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .vn-text-frame {
+            border: 1px solid #333;
+            background: rgba(10, 15, 10, 0.95);
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        .choice-card {
+            border: 1px solid var(--color-accent);
+            color: var(--color-accent);
+            padding: 10px;
+            cursor: cell;
+            transition: all 0.2s;
+            font-size: 0.95rem;
+            background: rgba(0, 255, 204, 0.05);
+            margin-bottom: 0.5rem;
+        }
+        .choice-card:hover {
+            background: var(--color-accent);
+            color: black;
+            transform: translateX(5px);
+        }
+        .choice-card.meta-choice {
+            border-color: var(--color-secondary);
+            color: var(--color-secondary);
+            background: rgba(255, 50, 50, 0.05);
+        }
+        .choice-card.meta-choice:hover {
+            background: var(--color-secondary);
+            color: white;
+        }
+
+        .ascii-art {
+            font-family: monospace;
+            white-space: pre;
+            font-size: 11px;
+            line-height: 11px;
+            color: var(--color-primary);
+            text-align: center;
+            text-shadow: 0 0 5px var(--color-primary);
+        }
+
+        /* 合成器與任務提示 */
+        .task-hint {
+            border: 1px dashed var(--color-secondary);
+            background: rgba(255, 50, 50, 0.1);
+            color: var(--color-secondary);
+            padding: 0.5rem;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            animation: pulse-red 2s infinite;
+            display: none; /* 預設隱藏 */
+        }
+        .task-hint.active { display: block; }
+
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 rgba(255, 50, 50, 0); }
+            50% { box-shadow: 0 0 10px rgba(255, 50, 50, 0.3); }
+            100% { box-shadow: 0 0 0 rgba(255, 50, 50, 0); }
+        }
+
+        /* 隱藏與工具 */
+        .hidden-section { display: none !important; }
+        .chinese-text { font-family: 'Noto Sans TC', sans-serif; }
+        .cursor-blink {
+            display: inline-block;
+            width: 8px;
+            height: 1.2em;
+            background: currentColor;
+            animation: blink 1s step-end infinite;
+            vertical-align: middle;
+        }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+        /* 物品欄 */
+        .inventory-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+            gap: 8px;
+        }
+        .inventory-item {
+            aspect-ratio: 1;
+            border: 1px solid #444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            flex-direction: column;
+            color: #666;
+        }
+        .inventory-item.filled {
+            border-color: var(--color-primary);
+            color: var(--color-primary);
+            background: rgba(255,176,0,0.1);
+        }
+
+        .vn-choices-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .choice-card.locked {
+            border-color: rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.3);
+            background: rgba(255,255,255,0.02);
+            cursor: not-allowed;
+            position: relative;
+        }
+
+        .choice-card.locked::after {
+            content: "LOCKED";
+            position: absolute;
+            right: 10px;
+            top: 8px;
+            font-size: 0.7rem;
+            letter-spacing: 2px;
+            color: rgba(255, 50, 50, 0.6);
+        }
+
+        .records-panel {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            height: 100%;
+            gap: 1rem;
+        }
+
+        .records-list {
+            border: 1px solid rgba(255,176,0,0.2);
+            background: rgba(0,0,0,0.5);
+            overflow-y: auto;
+            padding: 0.5rem;
+        }
+
+        .record-entry {
+            border: 1px dashed rgba(255,255,255,0.2);
+            padding: 0.7rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            cursor: cell;
+            transition: background 0.2s, border 0.2s;
+        }
+
+        .record-entry.unlocked {
+            border-color: rgba(0,255,204,0.4);
+            color: var(--color-accent);
+        }
+
+        .record-entry.active {
+            background: rgba(0,255,204,0.1);
+            box-shadow: inset 0 0 10px rgba(0,255,204,0.2);
+        }
+
+        .records-detail {
+            border: 1px solid rgba(0,255,204,0.2);
+            background: rgba(0,0,0,0.6);
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .record-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .record-tag {
+            border: 1px solid rgba(255,176,0,0.4);
+            padding: 0.1rem 0.5rem;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+        }
+
+        .inventory-item .item-label {
+            font-size: 0.65rem;
+            margin-top: 4px;
+            text-align: center;
+        }
+
+        .inventory-item.active {
+            border-color: var(--color-accent);
+            box-shadow: 0 0 8px var(--color-accent);
+        }
+
+        .meta-glitch {
+            animation: glitch-anim 0.25s steps(2) infinite;
+        }
+
+        .mission-chip {
+            border: 1px solid rgba(0,255,0,0.4);
+            padding: 0.2rem 0.6rem;
+            font-size: 0.7rem;
+            letter-spacing: 0.2em;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="monitor-casing">
+        <div class="screen" id="main-screen">
+            <!-- 視覺特效層 (Pointer Events: None) -->
+            <div class="scanlines"></div>
+            <div class="crt-overlay"></div>
+
+            <!-- 主容器 -->
+            <div class="relative z-10 h-full flex flex-col">
+                
+                <!-- 頂部資訊列 -->
+                <div class="flex justify-between items-center border-b border-amber-500/30 pb-2 mb-4 text-sm uppercase tracking-widest select-none shrink-0">
+                    <div class="flex items-center gap-3">
+                        <i data-lucide="aperture" class="w-5 h-5 animate-spin-slow text-amber-500"></i>
+                        <span class="text-amber-500">SYS.808 // ECHO ARCHIVE v2.5</span>
+                    </div>
+                    <div class="flex gap-6 text-xs font-mono text-gray-400 items-center">
+                        <button onclick="audioSys.toggle()" class="hover:text-amber-500 transition flex items-center gap-1" id="mute-btn">
+                            <i data-lucide="volume-x" class="w-3 h-3"></i> MUTE
+                        </button>
+                        <span id="sanity-meter">SANITY: 100%</span>
+                        <span id="clock">00:00:00</span>
+                    </div>
+                </div>
+
+                <!-- 開機動畫 (Boot) -->
+                <div id="boot-sequence" class="flex-1 flex flex-col justify-end pb-10 font-mono text-lg pl-4">
+                    <div id="boot-log"></div>
+                    <div class="text-xs text-gray-500 mt-4 chinese-text">
+                        [提示] 點擊畫面任意處以初始化音頻系統...
+                    </div>
+                </div>
+
+                <!-- 主要介面 -->
+                <div id="main-interface" class="hidden-section flex-1 flex gap-6 overflow-hidden">
+                    
+                    <!-- 左側：導航與狀態 -->
+                    <div class="w-64 flex flex-col gap-2 border-r border-amber-900/30 pr-4 shrink-0">
+                        <div class="text-[10px] text-gray-600 mb-2 uppercase tracking-[0.2em]">/// Navigation</div>
+                        
+                        <button class="retro-btn active" onclick="app.switchTab('dashboard')">
+                            <i data-lucide="activity" class="w-4 h-4"></i> 系統概況
+                        </button>
+                        <button class="retro-btn" onclick="app.switchTab('story')">
+                            <i data-lucide="book-open" class="w-4 h-4"></i> 故事協議
+                        </button>
+                        <button class="retro-btn" onclick="app.switchTab('synth')">
+                            <i data-lucide="waves" class="w-4 h-4"></i> 頻率調諧
+                            <span id="synth-badge" class="ml-auto w-2 h-2 bg-red-500 rounded-full animate-pulse hidden"></span>
+                        </button>
+                        <button class="retro-btn" onclick="app.switchTab('inventory')">
+                            <i data-lucide="backpack" class="w-4 h-4"></i> 物品背包
+                        </button>
+                        <button class="retro-btn" onclick="app.switchTab('records')">
+                            <i data-lucide="disc" class="w-4 h-4"></i> 磁帶紀錄
+                        </button>
+                        <button class="retro-btn" onclick="app.switchTab('help')">
+                            <i data-lucide="help-circle" class="w-4 h-4"></i> 操作手冊
+                        </button>
+
+                        <!-- 底部：迷你狀態 -->
+                        <div class="mt-auto border-t border-amber-900/30 pt-4">
+                            <div class="text-[10px] text-gray-500 mb-1">TAPE PROGRESS</div>
+                            <div class="flex items-center gap-2 mb-2">
+                                <div class="w-full h-2 bg-gray-900 border border-gray-700 overflow-hidden">
+                                    <div id="story-progress-bar" class="h-full bg-amber-500 w-[0%] transition-all duration-500"></div>
+                                </div>
+                                <span class="text-xs text-amber-500">A-Side</span>
+                            </div>
+                            <div class="text-[10px] text-gray-600 text-center p-2 border border-dashed border-gray-800">
+                                <span id="location-text">NEO-TAIPEI / SEC-7</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 右側：內容區 -->
+                    <div class="flex-1 relative overflow-hidden bg-black/20" id="content-viewport">
+                        
+                        <!-- 1. Dashboard (首頁) -->
+                        <div id="tab-dashboard" class="h-full overflow-y-auto p-4 space-y-6">
+                            <div class="flex justify-between items-end border-b border-gray-800 pb-4">
+                                <div>
+                                    <h1 class="text-4xl text-amber-500 mb-1 tracking-tighter">WELCOME_BACK</h1>
+                                    <p class="text-sm text-gray-500">USER_ID: ECHO_WALKER</p>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-4xl font-mono text-cyan-400">24°C</div>
+                                    <div class="text-xs text-gray-600">CORE TEMP</div>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="border border-amber-900/40 p-4 bg-amber-900/5">
+                                    <h3 class="text-xs text-amber-500 mb-3 uppercase border-b border-amber-900/30 pb-1">/// System Log</h3>
+                                    <p class="chinese-text text-sm text-gray-300 leading-relaxed">
+                                        系統已就緒。檢測到外部音頻接口。<br>
+                                        請隨時留意「故事協議」中的新事件。<br>
+                                        <span class="text-amber-600">> 點擊「故事協議」開始遊戲。</span>
+                                    </p>
+                                </div>
+                                <div class="border border-cyan-900/40 p-4 bg-cyan-900/5 flex flex-col items-center justify-center">
+                                    <div class="flex gap-1 h-20 items-end" id="mini-visualizer"></div>
+                                    <span class="text-xs text-cyan-600 mt-2">SIGNAL_ANALYSIS</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Story Protocol (核心玩法) -->
+                        <div id="tab-story" class="hidden-section h-full">
+                            <div class="vn-layout">
+                                <!-- 圖像區 -->
+                                <div class="vn-visual-frame">
+                                    <pre id="scene-art" class="ascii-art"></pre>
+                                    <!-- 標籤 -->
+                                    <div class="absolute top-2 left-2 text-xs border border-amber-500/50 px-2 py-1 bg-black/80 text-amber-500">
+                                        LOC: <span id="scene-loc">UNKNOWN</span>
+                                    </div>
+                                </div>
+
+                                <!-- 文字與選項區 -->
+                                <div class="vn-text-frame">
+                                    <div class="flex-1 overflow-y-auto mb-4 pr-2">
+                                        <div id="speaker-name" class="text-cyan-400 font-bold text-sm mb-1 hidden">???</div>
+                                        <p id="story-text" class="chinese-text text-lg text-gray-200 leading-relaxed whitespace-pre-wrap"></p>
+                                        <span class="cursor-blink">_</span>
+                                    </div>
+                                    
+                                    <!-- 選項容器 -->
+                                    <div id="choices-container" class="vn-choices-grid"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Synth (解謎與音樂) -->
+                        <div id="tab-synth" class="hidden-section h-full p-4 overflow-y-auto">
+                            <h2 class="text-2xl text-amber-500 mb-4 border-b border-amber-900/50 pb-2 flex justify-between">
+                                <span>FREQ_SEQ_808 // TUNER</span>
+                                <span id="synth-status" class="text-xs text-gray-500 mt-2">MODE: FREE PLAY</span>
+                            </h2>
+
+                            <!-- 任務提示區 -->
+                            <div id="synth-mission" class="task-hint chinese-text">
+                                <strong>! 系統攔截 !</strong> <br>
+                                偵測到加密訊號。請啟動 <span class="text-white">第 2 軌 (SQUARE)</span> 的所有頻率節點以解鎖資料。
+                            </div>
+
+                            <div class="bg-gray-900 p-4 border border-gray-800 shadow-lg">
+                                <div class="flex justify-between mb-4">
+                                    <span class="text-xs text-gray-500">BPM: 120</span>
+                                    <button id="synth-play-btn" class="text-xs border border-green-800 text-green-500 px-3 py-1 hover:bg-green-900 transition">
+                                        [ 播放序列 ]
+                                    </button>
+                                </div>
+                                <!-- 序列器網格 JS 生成 -->
+                                <div id="synth-grid-container" class="space-y-3"></div>
+                            </div>
+                            
+                            <p class="text-xs text-gray-600 mt-4 chinese-text">
+                                說明：點擊方塊啟用/停用音符。點擊播放以測試序列。<br>
+                                當故事需要「解碼」時，請根據提示調整這裡的設定。
+                            </p>
+                        </div>
+
+                        <!-- 4. Inventory (物品) -->
+                        <div id="tab-inventory" class="hidden-section h-full p-4">
+                             <h2 class="text-2xl text-amber-500 mb-4 border-b border-amber-900/50 pb-2">
+                                <i data-lucide="box" class="inline w-6 h-6"></i> 物理資產
+                            </h2>
+                            <div class="flex gap-4 h-full">
+                                <div class="w-1/2">
+                                    <div id="inventory-grid" class="inventory-grid"></div>
+                                </div>
+                                <div class="w-1/2 border-l border-gray-800 pl-4">
+                                    <h3 id="item-name" class="text-xl text-cyan-400 mb-2">背包空置</h3>
+                                    <p id="item-desc" class="chinese-text text-gray-400 text-sm">你還沒有收集到任何重要物品。</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 5. Help (操作手冊) -->
+                        <div id="tab-help" class="hidden-section h-full p-4 overflow-y-auto chinese-text text-gray-300 space-y-4">
+                            <h2 class="text-2xl text-amber-500 border-b border-amber-900/50 pb-2">操作手冊 v1.0</h2>
+                            <ul class="list-disc list-inside space-y-2 text-sm">
+                                <li><strong>基本操作</strong>：使用滑鼠點擊選項與介面按鈕。</li>
+                                <li><strong>故事推進</strong>：在「故事協議」中做出選擇。不同選擇會影響結局走向與理智值 (SANITY)。</li>
+                                <li><strong>頻率調諧</strong>：這不僅是樂器。當故事提示「解碼」或「加密」時，切換到此分頁並依照提示操作，解鎖成功會自動推進劇情。</li>
+                                <li><strong>物品使用</strong>：獲得的物品會自動存入背包。特定對話選項需要持有特定物品才會顯示。</li>
+                                <li><strong>音效</strong>：建議開啟音效以獲得完整的沉浸式體驗（包含環境音與介面音效）。</li>
+                            </ul>
+                            <div class="p-2 border border-dashed border-gray-600 mt-4 text-xs text-gray-500">
+                                警告：過低的理智值可能導致介面故障或看到不存在的選項。
+                            </div>
+                        </div>
+
+                        <!-- 6. Records (磁帶紀錄) -->
+                        <div id="tab-records" class="hidden-section h-full p-4 text-gray-200">
+                            <h2 class="text-2xl text-amber-500 border-b border-amber-900/50 pb-2 flex justify-between items-center">
+                                磁帶紀錄
+                                <span class="text-xs text-gray-500 uppercase tracking-[0.3em]" id="records-progress">0 / 0</span>
+                            </h2>
+                            <div class="records-panel mt-4">
+                                <div class="records-list" id="records-list"></div>
+                                <div class="records-detail">
+                                    <div class="text-xs text-gray-500 uppercase tracking-[0.3em]">節點詳情</div>
+                                    <h3 id="record-title" class="text-xl text-cyan-400">尚未選取節點</h3>
+                                    <div class="text-sm text-gray-500" id="record-chapter"></div>
+                                    <div class="record-tags" id="record-tags"></div>
+                                    <p id="record-summary" class="chinese-text text-sm leading-relaxed text-gray-300"></p>
+                                    <div class="text-xs text-gray-500 mt-auto border-t border-gray-800 pt-2">
+                                        解鎖更多結局以填滿磁帶紀錄。
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- 底部命令列 -->
+                <div class="mt-2 pt-2 border-t border-amber-900/30 flex items-center text-xs font-mono bg-black text-gray-500 shrink-0">
+                    <span class="mr-2 text-green-600">sys@echo:~$</span>
+                    <span id="cmd-line" class="text-gray-300">standby</span>
+                    <span class="cursor-blink ml-1"></span>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        const ART = {
+            city: `
+      _|_       |      
+     |   |     -+-     
+   __|___|__    |      
+  |  | . |  |   |      
+            `,
+            tape: `
+    __________
+   |  O __ O  |
+   |___|__|___|
+    [======]
+            `,
+            skull: `
+     .-'''-.
+    / _   _ \\
+    |(@) (@)|
+     '-----' 
+            `,
+            lock: `
+     .---.
+    / .-. \\
+    | | | |
+    | '-' |
+    '-----'
+    LOCKED
+            `,
+            tower: `
+       /\\
+      /  \\
+     /_/\\_\\
+     | || |
+     | || |
+     | || |
+     '----'
+            `,
+            bloom: `
+     .  *  .
+   *   /\\   *
+     .'  '.
+    (  ..  )
+     '----'
+            `
+        };
+
+        const ITEM_LIBRARY = {
+            amber_shard: {
+                name: "琥珀碎片",
+                desc: "殘留舊網路的聲紋，可在磁帶紀錄中解碼隱藏章節。",
+                lore: "碎片上的字串會在 SANITY 降至 70 以下時自行發光。"
+            },
+            harmonic_lens: {
+                name: "諧振透鏡",
+                desc: "可以看到平行頻道的幻燈，啟用特定對話選項。",
+                lore: "由倒塌的教堂窗花改造，內部刻著多層導體。"
+            },
+            phantom_token: {
+                name: "幽質記號",
+                desc: "允許你在介面與現實之間切換視角，必要於終局解鎖。",
+                lore: "K 說它是舊程式員留下的『撤離卡』。"
+            },
+            bridge_key: {
+                name: "橋接密鑰",
+                desc: "由兩段不同記憶拼合完成，能啟動最終頻率調諧任務。",
+                lore: "只有同時理解城市與幽靈的動機後才會成形。"
+            },
+            meta_spool: {
+                name: "Meta 捲軸",
+                desc: "在磁帶紀錄中改寫任何節點，重構故事走向。",
+                lore: "極度稀有，據說只有真結局玩家才可見。"
+            }
+        };
+
+        const BGM_PRESETS = {
+            drone: [
+                { wave: 'sawtooth', freq: 55, gain: 0.025, filter: { type: 'lowpass', freq: 240 } },
+                { wave: 'triangle', freq: 110, gain: 0.018, lfo: { freq: 0.08, depth: 4 } },
+                { wave: 'sine', freq: 220, gain: 0.012, lfo: { freq: 0.1, depth: 12 } }
+            ],
+            breach: [
+                { wave: 'square', freq: 70, gain: 0.03, filter: { type: 'bandpass', freq: 600 } },
+                { wave: 'sawtooth', freq: 140, gain: 0.02, lfo: { freq: 0.2, depth: 30 } },
+                { wave: 'sine', freq: 420, gain: 0.015, lfo: { freq: 0.5, depth: 60 } }
+            ],
+            truth: [
+                { wave: 'triangle', freq: 96, gain: 0.02, filter: { type: 'lowpass', freq: 400 } },
+                { wave: 'sine', freq: 192, gain: 0.018, lfo: { freq: 0.05, depth: 18 } },
+                { wave: 'triangle', freq: 384, gain: 0.01, lfo: { freq: 0.12, depth: 26 } }
+            ]
+        };
+
+        const SYNTH_MISSIONS = {
+            encryption_1: {
+                id: 'encryption_1',
+                title: 'ENCODER BOOT',
+                hint: "啟用第 2 軌 (SQUARE) 至少 4 個節點，與鎖定頻率共振。",
+                requirement: state => state[1].filter(Boolean).length >= 4,
+                successScene: 'decrypted_success'
+            },
+            resonance_bridge: {
+                id: 'resonance_bridge',
+                title: 'BRIDGE LINK',
+                hint: "第 1 軌與第 3 軌需交錯啟動 (10101010 模式)，形成橋接節奏。",
+                requirement: state => {
+                    const pattern = [true, false, true, false, true, false, true, false];
+                    return pattern.every((val, idx) => state[0][idx] === val && state[2][idx] === !val);
+                },
+                successScene: 'bridge_channel_opened'
+            },
+            final_signal: {
+                id: 'final_signal',
+                title: 'Ω-SIGNAL',
+                hint: "所有軌道需形成對角線亮點 (0,0)(1,1)(2,2)(3,3)…",
+                requirement: state => {
+                    for(let i=0;i<4;i++) {
+                        if(!state[i][i]) return false;
+                    }
+                    return true;
+                },
+                successScene: 'ending_true_signal'
+            }
+        };
+
+        const STORY_GRAPH = {
+            intro: {
+                title: "開機儀式",
+                text: "新台北第七扇區的夜晚，靜電像雨一樣落下。你把撿來的無標磁帶放在工作台上，磁帶外殼被刀刻著淡淡的字：『迴響不死』。",
+                art: ART.city,
+                speaker: "旁白",
+                location: "WORKBENCH",
+                record: { title: "起始雜訊", summary: "你在垃圾場拾獲無標磁帶，迴響開始蘇醒。", chapter: "Prologue", tags: ["boot","origin"] },
+                choices: [
+                    { text: "放入讀取機", next: "inspect_tape" },
+                    { text: "用手指感受磁帶溫度", next: "scan_surface" }
+                ],
+                bgm: 'drone'
+            },
+            scan_surface: {
+                title: "刻痕",
+                text: "磁帶外殼溫度異常地高，像剛被人握過一樣。指尖感受到細密溝槽，像某種點字。訊息重複同一句警告：不要播放。",
+                art: ART.tape,
+                location: "WORKBENCH",
+                record: { title: "封印提示", summary: "磁帶刻著禁止播放的訊息，似乎有人想阻止你。", chapter: "Prologue", tags: ["warning"] },
+                choices: [
+                    { text: "無視警告，放入讀取機", next: "inspect_tape" }
+                ]
+            },
+            inspect_tape: {
+                title: "噪音開鎖",
+                text: "磁頭接觸的瞬間，刺耳噪音像刀刃切過耳膜。系統在自救頻段中插入一條訊息：『訊號遭到分層加密，請手動調諧。』",
+                art: ART.lock,
+                speaker: "SYSTEM",
+                location: "SAFE_MODE",
+                record: { title: "封鎖指令", summary: "系統要求啟動手動調諧。", chapter: "Prologue", tags: ["mission","synth"] },
+                mission: 'encryption_1',
+                metaEffect: 'shake',
+                choices: [
+                    { text: "切換至頻率調諧", action: () => app.switchTab('synth') },
+                    { text: "嘗試徒手調整磁帶角度 (降低 SANITY)", next: "manual_override", cost: { sanity: 5 } }
+                ]
+            },
+            manual_override: {
+                title: "徒手改寫",
+                text: "你讓磁帶啃著自己的手指，血與粉塵混在磁帶縫裡。噪音短暫退去，但也燒掉了你的一點冷靜。",
+                art: ART.lock,
+                location: "WORKBENCH",
+                sanityShift: -10,
+                record: false,
+                choices: [
+                    { text: "還是回到頻率調諧", action: () => app.switchTab('synth') }
+                ]
+            },
+            decrypted_success: {
+                title: "幽靈連線",
+                text: "噪音讓位給低沉的人聲：『……終於，找到一個仍然願意傾聽的腦。』螢幕上浮現模糊輪廓，像顆漂浮在暗海的頭骨。",
+                art: ART.skull,
+                speaker: "K",
+                location: "ECHO-CHANNEL",
+                record: { title: "K 的聲紋", summary: "幽靈工程師 K 與你取得聯繫。", chapter: "Phase 01", tags: ["ally","mystery"] },
+                bgm: 'breach',
+                choices: [
+                    { text: "詢問身份", next: "dialogue_who" },
+                    { text: "詢問磁帶內容", next: "dialogue_what" }
+                ]
+            },
+            dialogue_who: {
+                title: "舊網路幽靈",
+                text: "『我叫 K，曾在大崩塌前維護公共記憶。』他說。『如今我只剩一段聲音，散落在多條磁帶上。幫我收集，或許能看見崩塌背後的設計者。』",
+                art: ART.skull,
+                speaker: "K",
+                location: "ECHO-CHANNEL",
+                choices: [
+                    { text: "接受委託並打開磁帶紀錄", next: "chapter0_hub", awards: { flags: ['k_contact'] } },
+                    { text: "彈出磁帶 (結局：明哲保身)", next: "bad_end_eject" }
+                ]
+            },
+            dialogue_what: {
+                title: "籠子的鑰匙",
+                text: "『磁帶裡裝的是城市的源代碼。』K 說。『我們活在一個不完整的模擬裡，磁帶是退出鍵。』",
+                art: ART.skull,
+                speaker: "K",
+                location: "ECHO-CHANNEL",
+                choices: [
+                    { text: "回應：那退出後呢？", next: "dialogue_who", sanityShift: -5 },
+                    { text: "保持沉默，觀察介面變化", next: "meta_observation", metaEffect: 'glitch' }
+                ]
+            },
+            meta_observation: {
+                title: "介面自省",
+                text: "螢幕邊界開始向內折，像有人把介面的皮剝下來。你記錄下這段異常，磁帶紀錄解鎖新的欄位。",
+                art: ART.tower,
+                location: "META-LAYER",
+                awards: { flags: ['meta_awake'] },
+                record: { title: "界面折疊", summary: "你見到介面自我剝離，Meta 記憶開啟。", chapter: "Phase 01", tags: ["meta"] },
+                choices: [
+                    { text: "回到 K 的頻道", next: "dialogue_who" }
+                ]
+            },
+            chapter0_hub: {
+                title: "第七扇區街景",
+                text: "K 指示你前往第七扇區的三個據點，各自藏著不同碎片：夜市、地下教堂、沉睡實驗室。每完成一處，磁帶紀錄就會亮起新的軸。",
+                art: ART.city,
+                location: "NEO-TAIPEI / SEC-7",
+                record: { title: "委託開始", summary: "你接受 K 的委託，必須搜集三個碎片。", chapter: "Phase 02", tags: ["mission"] },
+                choices: [
+                    { text: "前往噪音夜市", next: "market_noise" },
+                    { text: "前往地下教堂", next: "atrium_memorial" },
+                    { text: "潛入沉睡實驗室", next: "dream_dive" },
+                    { text: "開啟橋接頻道", next: "bridge_ready", requires: { items: ['bridge_key', 'phantom_token'] } },
+                    { text: "查看磁帶紀錄", action: () => app.switchTab('records') }
+                ]
+            },
+            bridge_ready: {
+                title: "橋接準備",
+                text: "你收齊必要的碎片，將它們安放在調諧器上。儀表顯示新的任務——橋接頻道，只有交錯節奏才能開門。",
+                art: ART.lock,
+                location: "WORKBENCH",
+                mission: 'resonance_bridge',
+                record: { title: "橋接預備", summary: "你啟動第二道調諧任務，準備接上橋。", chapter: "Phase 03", tags: ["mission","synth"] },
+                choices: [
+                    { text: "執行頻率調諧", action: () => app.switchTab('synth') },
+                    { text: "暫停並回到扇區地圖", next: "chapter0_hub" }
+                ]
+            },
+            market_noise: {
+                title: "噪音夜市",
+                text: "夜市的攤販用信號燈交換秘密，誰的顏色越亂越誠實。你找到一位賣記憶碎片的老太太，她用金屬牙齒咬住一塊琥珀。",
+                art: ART.tape,
+                location: "NOISE-MARKET",
+                record: { title: "琥珀交易", summary: "你以自己的記憶換來一塊含有聲紋的琥珀。", chapter: "Phase 02", tags: ["item","trade"] },
+                awards: { items: ['amber_shard'], sanity: -5 },
+                choices: [
+                    { text: "立即解碼琥珀", next: "shard_decode", requires: { items: ['amber_shard'] } },
+                    { text: "返回扇區地圖", next: "chapter0_hub" }
+                ]
+            },
+            shard_decode: {
+                title: "碎片解碼",
+                text: "琥珀內的聲紋展開，如同時間倒流。你聽見 K 年輕時的笑聲，以及一段關於『橋接密鑰』的公式。",
+                art: ART.bloom,
+                location: "WORKBENCH",
+                awards: { flags: ['amber_story'], sanity: +5 },
+                choices: [
+                    { text: "銘記公式 (獲得橋接密鑰一半)", next: "bridge_half_one", awards: { items: ['bridge_key'] } }
+                ]
+            },
+            bridge_half_one: {
+                title: "半枚密鑰",
+                text: "密鑰在你掌心劃出一道燙痕，提醒你還缺另一半，否則任何橋都不會讓你通過。",
+                art: ART.lock,
+                location: "WORKBENCH",
+                record: false,
+                choices: [
+                    { text: "返回扇區地圖", next: "chapter0_hub" }
+                ]
+            },
+            atrium_memorial: {
+                title: "地下教堂",
+                text: "被廢棄的教堂變成資料回音室，牆上的窗花折射出多層影像。你在祭壇下找到一個諧振透鏡，像是專為你準備。",
+                art: ART.tower,
+                location: "SUB-ATRium",
+                record: { title: "透鏡祕跡", summary: "在教堂下獲得諧振透鏡，可見到平行頻道。", chapter: "Phase 02", tags: ["item","vision"] },
+                awards: { items: ['harmonic_lens'] },
+                choices: [
+                    { text: "使用透鏡觀看牆面", next: "lens_reveal", requires: { items: ['harmonic_lens'] } },
+                    { text: "返回扇區地圖", next: "chapter0_hub" }
+                ]
+            },
+            lens_reveal: {
+                title: "疊層浮影",
+                text: "透鏡下出現另一個介面，好像有人把真正的故事黏在背面。浮影告訴你，只有在 SANITY 低於 60 時，幽質記號才會出現。",
+                art: ART.bloom,
+                location: "SUB-ATRium",
+                metaEffect: 'glitch',
+                awards: { flags: ['lens_awake'] },
+                choices: [
+                    { text: "記下提示，返回地圖", next: "chapter0_hub" }
+                ]
+            },
+            dream_dive: {
+                title: "沉睡實驗室",
+                text: "實驗室裡充滿舊式冷凍床。你躺進去，讓自己短暫死亡，換取一段幽質影像。醒來時手裡抓著一枚幽質記號。",
+                art: ART.skull,
+                location: "DREAM-LAB",
+                sanityShift: -15,
+                record: { title: "靜止之夢", summary: "以暫時休克換得幽質記號。", chapter: "Phase 02", tags: ["item","dream"] },
+                awards: { items: ['phantom_token'] },
+                choices: [
+                    { text: "將幽質記號放入口袋", next: "chapter0_hub" }
+                ]
+            },
+            bridge_channel_opened: {
+                title: "橋接頻道",
+                text: "頻率調諧器開始自動記錄，你看到多條時間線彼此交錯。K 的聲音顫抖：『你接上了橋，我可以再說一次真話。』",
+                art: ART.tower,
+                location: "BRIDGE",
+                record: { title: "橋接開啟", summary: "第二個調諧任務成功，開啟橋接頻道。", chapter: "Phase 03", tags: ["synth","bridge"] },
+                bgm: 'truth',
+                choices: [
+                    { text: "讓 K 傾吐真相", next: "meta_confession" },
+                    { text: "檢視磁帶紀錄", action: () => app.switchTab('records') }
+                ]
+            },
+            meta_confession: {
+                title: "K 的懺悔",
+                text: "『我曾經協助關閉城市，因為我們害怕失控。』K 承認。『但我也暗中留下另一層路線，讓值得的人逃出去。你有幽質記號嗎？』",
+                art: ART.skull,
+                location: "BRIDGE",
+                choices: [
+                    { text: "出示幽質記號", next: "meta_door", requires: { items: ['phantom_token'] } },
+                    { text: "缺少記號，轉為追問橋的用途", next: "ending_false_loop" }
+                ]
+            },
+            meta_door: {
+                title: "門後的門",
+                text: "幽質記號融入螢幕，你看到介面打開一道真正的門。門外是另一個工作台，上面正運行著這個介面。",
+                art: ART.bloom,
+                location: "META-GATE",
+                metaEffect: 'glitch',
+                awards: { items: ['meta_spool'] },
+                record: { title: "Meta 洞察", summary: "你取得 Meta 捲軸，可以改寫磁帶紀錄。", chapter: "Phase 03", tags: ["meta","item"] },
+                choices: [
+                    { text: "改寫任意紀錄節點", action: () => tapeArchive.injectMeta() },
+                    { text: "準備最終調諧", next: "final_preparation", requires: { items: ['bridge_key','meta_spool'] } }
+                ]
+            },
+            final_preparation: {
+                title: "真相序列",
+                text: "你將橋接密鑰與 Meta 捲軸放在頻率調諧器上，儀表顯示一個新的任務：Ω-SIGNAL，只有對角線序列才能打開真正的磁帶終點。",
+                art: ART.lock,
+                mission: 'final_signal',
+                choices: [
+                    { text: "前往頻率調諧", action: () => app.switchTab('synth') },
+                    { text: "猶豫，回顧磁帶紀錄", action: () => app.switchTab('records') }
+                ]
+            },
+            ending_false_loop: {
+                title: "循環結局",
+                text: "你拒絕踏出橋，K 的聲音逐漸模糊。磁帶開始自我覆蓋，把你放回最初的工作台。你知道自己失去了什麼，但記不清。 [結局：循環]",
+                art: ART.city,
+                end: true,
+                record: { title: "循環節點", summary: "你選擇留在模擬內，磁帶重置。", chapter: "Ending", tags: ["ending","loop"] },
+                choices: [
+                    { text: "重啟系統", action: () => location.reload() },
+                    { text: "查看磁帶紀錄", action: () => app.switchTab('records') }
+                ]
+            },
+            ending_true_signal: {
+                title: "真結局：空城",
+                text: "對角線亮起，Ω-SIGNAL 穿透城市。所有螢幕熄滅，只剩遠處閃著的真實天空。你帶著磁帶紀錄走出門，發現世界其實早已空無一人。你成了最後的見證者。",
+                art: ART.bloom,
+                end: true,
+                bgm: 'truth',
+                record: { title: "真實軸線", summary: "你完成所有調諧，離開模擬城市。", chapter: "Ending", tags: ["ending","true"] },
+                choices: [
+                    { text: "以記錄者身份重啟", action: () => location.reload() }
+                ]
+            },
+            bad_end_eject: {
+                title: "明哲保身",
+                text: "你彈出磁帶，把它埋回垃圾堆。世界恢復安靜，K 再也不會吵醒你。或許你會夢到那顆被遺忘的頭骨，或許不會。 [結局：明哲保身]",
+                art: ART.city,
+                end: true,
+                record: { title: "保身結局", summary: "你拒絕了所有任務，故事在開頭結束。", chapter: "Ending", tags: ["ending","safe"] },
+                choices: [
+                    { text: "重啟系統", action: () => location.reload() }
+                ]
+            }
+        };
+
+        const tapeArchive = {
+            entries: [],
+            selected: null,
+            seen: new Set(),
+            listEl: null,
+            detail: {},
+            total: Object.values(STORY_GRAPH).filter(scene => scene.record !== false).length,
+            log(sceneId, scene) {
+                if(scene.record === false || this.seen.has(sceneId)) return;
+                this.seen.add(sceneId);
+                const base = scene.record || {};
+                this.entries.push({
+                    id: sceneId,
+                    title: base.title || scene.title || sceneId,
+                    summary: base.summary || scene.text.slice(0, 80),
+                    chapter: base.chapter || "Unknown",
+                    tags: base.tags || [],
+                    unlocked: true
+                });
+                this.render();
+            },
+            render() {
+                if(!this.listEl) return;
+                const progress = document.getElementById('records-progress');
+                if(progress) {
+                    progress.innerText = `${this.entries.length} / ${this.total}`;
+                }
+                this.listEl.innerHTML = '';
+                this.entries.forEach(entry => {
+                    const div = document.createElement('div');
+                    div.className = 'record-entry unlocked';
+                    if(this.selected === entry.id) div.classList.add('active');
+                    div.innerHTML = `<div class="text-xs text-gray-500">${entry.chapter}</div><div class="text-amber-400">${entry.title}</div>`;
+                    div.onclick = () => this.select(entry.id);
+                    this.listEl.appendChild(div);
+                });
+                if(this.entries.length === 0) {
+                    const empty = document.createElement('div');
+                    empty.className = 'record-entry';
+                    empty.innerText = '尚未解鎖任何節點';
+                    this.listEl.appendChild(empty);
+                }
+                this.highlightList();
+                if(this.selected) {
+                    const entry = this.entries.find(e => e.id === this.selected);
+                    if(entry) this.updateDetail(entry);
+                }
+            },
+            highlightList() {
+                if(!this.listEl) return;
+                Array.from(this.listEl.children).forEach(child => child.classList.remove('active'));
+                if(!this.selected) return;
+                const idx = this.entries.findIndex(e => e.id === this.selected);
+                if(idx >= 0) {
+                    const node = this.listEl.children[idx];
+                    if(node) node.classList.add('active');
+                }
+            },
+            select(id) {
+                const entry = this.entries.find(e => e.id === id);
+                if(!entry) return;
+                this.selected = id;
+                this.highlightList();
+                this.updateDetail(entry);
+            },
+            updateDetail(entry) {
+                const title = document.getElementById('record-title');
+                const chapter = document.getElementById('record-chapter');
+                const summary = document.getElementById('record-summary');
+                const tagsEl = document.getElementById('record-tags');
+                if(title) title.innerText = entry.title;
+                if(chapter) chapter.innerText = entry.chapter;
+                if(summary) summary.innerText = entry.summary;
+                if(tagsEl) {
+                    tagsEl.innerHTML = '';
+                    entry.tags.forEach(tag => {
+                        const span = document.createElement('span');
+                        span.className = 'record-tag';
+                        span.innerText = tag;
+                        tagsEl.appendChild(span);
+                    });
+                }
+            },
+            injectMeta() {
+                if(this.entries.length === 0) return;
+                const random = this.entries[Math.floor(Math.random() * this.entries.length)];
+                random.tags.push('meta');
+                random.summary += " / 你在 Meta 捲軸上刻下補述。";
+                audioSys.playSFX('unlock');
+                this.render();
+            }
+        };
+
+        const metaLayer = {
+            screenEl: null,
+            glitchTimer: null,
+            trigger(effect) {
+                if(effect === 'glitch') this.glitch();
+                if(effect === 'shake') this.shake();
+            },
+            glitch(duration = 800) {
+                if(!this.screenEl) return;
+                this.screenEl.classList.add('glitch-active');
+                clearTimeout(this.glitchTimer);
+                this.glitchTimer = setTimeout(() => {
+                    this.screenEl.classList.remove('glitch-active');
+                }, duration);
+            },
+            shake(duration = 500) {
+                if(!this.screenEl) return;
+                this.screenEl.classList.add('screen-shake');
+                setTimeout(() => this.screenEl.classList.remove('screen-shake'), duration);
+            }
+        };
+
+        const audioSys = {
+            ctx: null,
+            isMuted: true,
+            bgmNodes: [],
+            currentTrack: null,
+            masterGain: null,
+            init() {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioContext();
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.gain.value = 0.6;
+                this.masterGain.connect(this.ctx.destination);
+                this.isMuted = false;
+                this.updateIcon();
+                this.startBGM('drone');
+            },
+            toggle() {
+                if (!this.ctx) {
+                    this.init();
+                    return;
+                }
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+                this.isMuted = !this.isMuted;
+                if(this.isMuted) {
+                    this.masterGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+                } else {
+                    this.masterGain.gain.setTargetAtTime(0.6, this.ctx.currentTime, 0.05);
+                }
+                this.updateIcon();
+            },
+            updateIcon() {
+                const btn = document.getElementById('mute-btn');
+                if(!btn) return;
+                if (this.isMuted) {
+                    btn.innerHTML = `<i data-lucide="volume-x" class="w-3 h-3"></i> MUTE`;
+                    btn.classList.add('text-gray-500');
+                    btn.classList.remove('text-amber-500');
+                } else {
+                    btn.innerHTML = `<i data-lucide="volume-2" class="w-3 h-3"></i> ON`;
+                    btn.classList.add('text-amber-500');
+                    btn.classList.remove('text-gray-500');
+                }
+                lucide.createIcons();
+            },
+            startBGM(track = 'drone') {
+                if(!this.ctx || track === this.currentTrack) return;
+                this.clearBGM();
+                const preset = BGM_PRESETS[track] || BGM_PRESETS.drone;
+                preset.forEach(layer => this.createLayer(layer));
+                this.currentTrack = track;
+            },
+            clearBGM() {
+                this.bgmNodes.forEach(node => {
+                    if(node.stop) {
+                        try { node.stop(); } catch(e) {}
+                    }
+                    if(node.disconnect) node.disconnect();
+                });
+                this.bgmNodes = [];
+            },
+            createLayer(config) {
+                const osc = this.ctx.createOscillator();
+                osc.type = config.wave;
+                osc.frequency.value = config.freq;
+                const gain = this.ctx.createGain();
+                gain.gain.value = config.gain;
+                let node = osc;
+                if(config.filter) {
+                    const filter = this.ctx.createBiquadFilter();
+                    filter.type = config.filter.type;
+                    filter.frequency.value = config.filter.freq;
+                    node.connect(filter);
+                    node = filter;
+                    this.bgmNodes.push(filter);
+                }
+                node.connect(gain).connect(this.masterGain);
+                if(config.lfo) {
+                    const lfo = this.ctx.createOscillator();
+                    const lfoGain = this.ctx.createGain();
+                    lfo.frequency.value = config.lfo.freq;
+                    lfoGain.gain.value = config.lfo.depth;
+                    lfo.connect(lfoGain).connect(osc.frequency);
+                    lfo.start();
+                    this.bgmNodes.push(lfo, lfoGain);
+                }
+                osc.start();
+                this.bgmNodes.push(osc, gain);
+            },
+            playSFX(type) {
+                if (this.isMuted || !this.ctx) return;
+                const t = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.connect(gain).connect(this.masterGain);
+                if (type === 'blip') {
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(800, t);
+                    osc.frequency.exponentialRampToValueAtTime(100, t + 0.1);
+                    gain.gain.setValueAtTime(0.06, t);
+                    gain.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+                } else if (type === 'type') {
+                    osc.type = 'triangle';
+                    osc.frequency.value = 600 + Math.random() * 400;
+                    gain.gain.value = 0.02;
+                } else if (type === 'error') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(120, t);
+                    osc.frequency.linearRampToValueAtTime(40, t + 0.3);
+                    gain.gain.value = 0.08;
+                } else if (type === 'unlock') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(440, t);
+                    osc.frequency.exponentialRampToValueAtTime(1320, t + 0.4);
+                    gain.gain.setValueAtTime(0.05, t);
+                    gain.gain.linearRampToValueAtTime(0.01, t + 0.5);
+                }
+                osc.start(t);
+                osc.stop(t + 0.4);
+            }
+        };
+
+        const app = {
+            state: {
+                currentScene: null,
+                inventory: {},
+                flags: {},
+                history: [],
+                sanity: 100,
+                activeMission: null
+            },
+            switchTab(tabId) {
+                document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.add('hidden-section'));
+                const target = document.getElementById(`tab-${tabId}`);
+                if (target) target.classList.remove('hidden-section');
+                document.querySelectorAll('.retro-btn').forEach(btn => btn.classList.remove('active'));
+                const navBtn = document.querySelector(`.retro-btn[onclick*="'${tabId}'"]`);
+                if (navBtn) navBtn.classList.add('active');
+                audioSys.playSFX('blip');
+                this.typeCommand(`SWITCH >> ${tabId.toUpperCase()}`);
+                if(tabId === 'synth') synthSystem.checkMissionStatus();
+                if(tabId === 'inventory') inventorySystem.render();
+                if(tabId === 'records') tapeArchive.render();
+                if(tabId === 'story' && this.state.currentScene === 'intro') {
+                    storyEngine.renderScene('intro');
+                }
+            },
+            typeCommand(text) {
+                document.getElementById('cmd-line').innerText = text;
+            },
+            updateProgress() {
+                const percent = Math.min(100, (this.state.history.length / 20) * 100);
+                document.getElementById('story-progress-bar').style.width = `${percent}%`;
+            },
+            giveItem(itemId) {
+                if(!ITEM_LIBRARY[itemId]) return;
+                this.state.inventory[itemId] = (this.state.inventory[itemId] || 0) + 1;
+                inventorySystem.render();
+            },
+            consumeItem(itemId) {
+                if(!this.state.inventory[itemId]) return false;
+                this.state.inventory[itemId] -= 1;
+                if(this.state.inventory[itemId] <= 0) delete this.state.inventory[itemId];
+                inventorySystem.render();
+                return true;
+            },
+            hasItem(itemId) {
+                return !!this.state.inventory[itemId];
+            },
+            setFlag(flag) {
+                this.state.flags[flag] = true;
+            },
+            hasFlag(flag) {
+                return !!this.state.flags[flag];
+            },
+            adjustSanity(delta) {
+                this.state.sanity = Math.max(0, Math.min(120, this.state.sanity + delta));
+                document.getElementById('sanity-meter').innerText = `SANITY: ${this.state.sanity}%`;
+                if(this.state.sanity < 55) {
+                    metaLayer.glitch(1200);
+                }
+            }
+        };
+
+        const synthSystem = {
+            rows: 4,
+            cols: 8,
+            state: [],
+            isPlaying: false,
+            interval: null,
+            init() {
+                const container = document.getElementById('synth-grid-container');
+                container.innerHTML = '';
+                this.state = Array(this.rows).fill().map(() => Array(this.cols).fill(false));
+                const labels = ['HIGH', 'SQUARE', 'SAW', 'NOISE'];
+                for(let r=0; r<this.rows; r++) {
+                    const rowDiv = document.createElement('div');
+                    rowDiv.className = 'flex gap-2';
+                    const label = document.createElement('div');
+                    label.className = 'w-12 text-xs text-gray-500 pt-2 font-mono text-right';
+                    label.innerText = labels[r];
+                    rowDiv.appendChild(label);
+                    const gridDiv = document.createElement('div');
+                    gridDiv.className = 'flex-1 grid grid-cols-8 gap-1';
+                    for(let c=0; c<this.cols; c++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'h-8 bg-gray-800 border border-gray-700 hover:bg-gray-700 transition-colors';
+                        cell.dataset.r = r;
+                        cell.dataset.c = c;
+                        cell.onclick = () => this.toggleCell(r, c, cell);
+                        gridDiv.appendChild(cell);
+                    }
+                    rowDiv.appendChild(gridDiv);
+                    container.appendChild(rowDiv);
+                }
+                document.getElementById('synth-play-btn').onclick = () => this.togglePlay();
+            },
+            activateMission(id) {
+                app.state.activeMission = id;
+                document.getElementById('synth-badge').classList.remove('hidden');
+                this.checkMissionStatus();
+            },
+            toggleCell(r, c, el) {
+                this.state[r][c] = !this.state[r][c];
+                if(this.state[r][c]) {
+                    el.classList.add('bg-amber-500', 'border-amber-300');
+                    audioSys.playSFX('blip');
+                } else {
+                    el.classList.remove('bg-amber-500', 'border-amber-300');
+                }
+                this.checkSolution();
+            },
+            togglePlay() {
+                this.isPlaying = !this.isPlaying;
+                const btn = document.getElementById('synth-play-btn');
+                if(this.isPlaying) {
+                    btn.innerText = "STOP";
+                    btn.classList.add('bg-green-900');
+                    let step = 0;
+                    this.interval = setInterval(() => {
+                        for(let r=0; r<this.rows; r++) {
+                            if(this.state[r][step]) audioSys.playSFX('type');
+                        }
+                        step = (step + 1) % this.cols;
+                    }, 200);
+                } else {
+                    btn.innerText = "[ 播放序列 ]";
+                    btn.classList.remove('bg-green-900');
+                    clearInterval(this.interval);
+                }
+            },
+            checkMissionStatus() {
+                const hintEl = document.getElementById('synth-mission');
+                const statusEl = document.getElementById('synth-status');
+                const mission = SYNTH_MISSIONS[app.state.activeMission];
+                if(mission) {
+                    hintEl.classList.add('active');
+                    hintEl.innerHTML = `<strong>${mission.title}</strong><br>${mission.hint}`;
+                    statusEl.innerText = "MODE: DECRYPTION REQUIRED";
+                    statusEl.classList.add('text-red-500', 'animate-pulse');
+                } else {
+                    hintEl.classList.remove('active');
+                    statusEl.innerText = "MODE: FREE PLAY";
+                    statusEl.classList.remove('text-red-500', 'animate-pulse');
+                }
+            },
+            checkSolution() {
+                const mission = SYNTH_MISSIONS[app.state.activeMission];
+                if(!mission) return;
+                if(mission.requirement(this.state)) {
+                    audioSys.playSFX('unlock');
+                    app.state.activeMission = null;
+                    document.getElementById('synth-badge').classList.add('hidden');
+                    const hintEl = document.getElementById('synth-mission');
+                    hintEl.innerHTML = `<span class="text-green-500">任務完成，資料同步中...</span>`;
+                    hintEl.classList.add('active');
+                    setTimeout(() => {
+                        app.switchTab('story');
+                        storyEngine.renderScene(mission.successScene);
+                    }, 1000);
+                }
+            }
+        };
+
+        const inventorySystem = {
+            selected: null,
+            render() {
+                const grid = document.getElementById('inventory-grid');
+                if(!grid) return;
+                grid.innerHTML = '';
+                const items = Object.entries(app.state.inventory);
+                items.forEach(([id, count]) => {
+                    const data = ITEM_LIBRARY[id];
+                    const div = document.createElement('div');
+                    div.className = 'inventory-item filled';
+                    div.dataset.itemId = id;
+                    if(this.selected === id) div.classList.add('active');
+                    div.innerHTML = `<span>${data.name}</span><span class="item-label">x${count}</span>`;
+                    div.onclick = () => this.focus(id);
+                    grid.appendChild(div);
+                });
+                while(grid.children.length < 12) {
+                    const placeholder = document.createElement('div');
+                    placeholder.className = 'inventory-item';
+                    placeholder.innerText = 'EMPTY';
+                    grid.appendChild(placeholder);
+                }
+                this.highlightSelected();
+                this.updateDetail();
+            },
+            focus(id, playSound = true) {
+                const data = ITEM_LIBRARY[id];
+                if(!data) return;
+                this.selected = id;
+                if(playSound) audioSys.playSFX('blip');
+                this.updateDetail();
+                this.highlightSelected();
+            },
+            updateDetail() {
+                if(!this.selected) return;
+                const data = ITEM_LIBRARY[this.selected];
+                if(!data) return;
+                document.getElementById('item-name').innerText = data.name;
+                document.getElementById('item-desc').innerText = `${data.desc}\n${data.lore}`;
+            },
+            highlightSelected() {
+                const grid = document.getElementById('inventory-grid');
+                if(!grid) return;
+                Array.from(grid.querySelectorAll('.inventory-item.filled')).forEach(div => {
+                    div.classList.remove('active');
+                    if(this.selected && div.dataset.itemId === this.selected) {
+                        div.classList.add('active');
+                    }
+                });
+            }
+        };
+
+        const storyEngine = {
+            typingTimer: null,
+            renderScene(sceneId) {
+                const scene = STORY_GRAPH[sceneId];
+                if(!scene) return;
+                app.state.currentScene = sceneId;
+                app.state.history.push(sceneId);
+                app.updateProgress();
+                if(scene.sanityShift) app.adjustSanity(scene.sanityShift);
+                if(scene.metaEffect) metaLayer.trigger(scene.metaEffect);
+                if(scene.bgm) audioSys.startBGM(scene.bgm);
+                if(scene.awards) {
+                    if(scene.awards.items) scene.awards.items.forEach(item => app.giveItem(item));
+                    if(scene.awards.flags) scene.awards.flags.forEach(flag => app.setFlag(flag));
+                    if(scene.awards.sanity) app.adjustSanity(scene.awards.sanity);
+                }
+                if(scene.mission) synthSystem.activateMission(scene.mission);
+                tapeArchive.log(sceneId, scene);
+                if(scene.end) document.getElementById('synth-badge').classList.add('hidden');
+                document.getElementById('scene-art').innerText = scene.art || '';
+                document.getElementById('scene-loc').innerText = scene.location || 'UNKNOWN';
+                const speaker = document.getElementById('speaker-name');
+                if(scene.speaker) {
+                    speaker.innerText = scene.speaker;
+                    speaker.classList.remove('hidden');
+                } else {
+                    speaker.classList.add('hidden');
+                }
+                const textEl = document.getElementById('story-text');
+                const choicesEl = document.getElementById('choices-container');
+                choicesEl.innerHTML = '';
+                textEl.innerText = '';
+                let i = 0;
+                clearInterval(this.typingTimer);
+                const fullText = scene.text;
+                this.typingTimer = setInterval(() => {
+                    textEl.innerText += fullText.charAt(i);
+                    if(i % 3 === 0) audioSys.playSFX('type');
+                    i++;
+                    if(i >= fullText.length) {
+                        clearInterval(this.typingTimer);
+                        this.renderChoices(scene.choices);
+                    }
+                }, 25);
+            },
+            renderChoices(choices = []) {
+                const container = document.getElementById('choices-container');
+                container.innerHTML = '';
+                choices.forEach(choice => {
+                    const btn = document.createElement('button');
+                    btn.className = 'choice-card';
+                    if(!this.canActivate(choice)) {
+                        btn.classList.add('locked');
+                        btn.innerText = `> ${choice.text}`;
+                        btn.onclick = () => audioSys.playSFX('error');
+                    } else {
+                        btn.innerText = `> ${choice.text}`;
+                        btn.onclick = () => this.executeChoice(choice);
+                    }
+                    container.appendChild(btn);
+                });
+            },
+            canActivate(choice) {
+                if(choice.requires) {
+                    if(choice.requires.items) {
+                        const missing = choice.requires.items.some(id => !app.hasItem(id));
+                        if(missing) return false;
+                    }
+                    if(choice.requires.flags) {
+                        const missingFlag = choice.requires.flags.some(f => !app.hasFlag(f));
+                        if(missingFlag) return false;
+                    }
+                }
+                return true;
+            },
+            executeChoice(choice) {
+                if(choice.cost && choice.cost.sanity) app.adjustSanity(-choice.cost.sanity);
+                if(choice.consume) choice.consume.forEach(id => app.consumeItem(id));
+                if(choice.awards) {
+                    if(choice.awards.items) choice.awards.items.forEach(id => app.giveItem(id));
+                    if(choice.awards.flags) choice.awards.flags.forEach(flag => app.setFlag(flag));
+                    if(choice.awards.sanity) app.adjustSanity(choice.awards.sanity);
+                }
+                if(choice.metaEffect) metaLayer.trigger(choice.metaEffect);
+                if(choice.action) {
+                    choice.action();
+                    return;
+                }
+                if(choice.next) {
+                    this.renderScene(choice.next);
+                }
+            }
+        };
+
+        window.onload = () => {
+            synthSystem.init();
+            metaLayer.screenEl = document.getElementById('main-screen');
+            tapeArchive.listEl = document.getElementById('records-list');
+            tapeArchive.render();
+            inventorySystem.render();
+            const logs = [
+                "LOADING KERNEL...",
+                "CHECKING AUDIO DRIVERS...",
+                "MOUNTING TAPE DRIVE...",
+                "SYSTEM READY."
+            ];
+            const logEl = document.getElementById('boot-log');
+            let i = 0;
+            function log() {
+                if(i < logs.length) {
+                    const div = document.createElement('div');
+                    div.className = 'text-amber-500 mb-1';
+                    div.innerText = logs[i];
+                    logEl.appendChild(div);
+                    i++;
+                    setTimeout(log, 300);
+                } else {
+                    document.body.onclick = () => {
+                        document.body.onclick = null;
+                        audioSys.init();
+                        document.getElementById('boot-sequence').style.display = 'none';
+                        document.getElementById('main-interface').classList.remove('hidden-section');
+                        app.switchTab('story');
+                        storyEngine.renderScene('intro');
+                    };
+                }
+            }
+            log();
+        };
+    </script>
+</body>
+</html>
